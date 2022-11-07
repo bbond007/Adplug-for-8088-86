@@ -5,10 +5,10 @@
 /////////////////////////
 
 /*
-Here I go again, the same story, I grew up with an 8086 in which many things would not work 
+Here I go again, the same story, I grew up with an 8086 in which many things would not work
 back in the day, so I decided to compile "adplug" without any 186 instructions.
 
-This is not really adplug, I only took the file readers and players, and then created a simple gui. 
+This is not really adplug, I only took the file readers and players, and then created a simple gui.
 
 REQUIREMENTS
 
@@ -19,10 +19,13 @@ SOUND: of course an adlib (or compatible) card.
 
 An 8088 at 4 MHz can't play some complex formats at full speed (LDS, D00), code needs to be optimized.
 
-I still have to implement an MDA gui 
+I still have to implement an MDA gui
 
-*/
+BinaryBond007 2022-11-07 : Added command line param support*/
 
+#define DONT_INCLUDE_PARAM_TEST
+
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <dos.h>
@@ -39,6 +42,7 @@ I still have to implement an MDA gui
 
 #define true 1
 #define false 0
+#define null (char*) 0x00
 
 typedef unsigned char  byte;
 typedef unsigned short word;
@@ -98,7 +102,7 @@ void Clearkb(){
 
 void Load_Music(char *filename);
 void Stop_Music();
-void Setup();
+void Setup(char keyVideo,char keyAudio, char keyDrums);
 void Init();
 void Exit_Dos();
 
@@ -133,6 +137,7 @@ byte Color_Loaded = 0;
 byte Color_Error = 0;
 
 extern unsigned char C_Volume[];
+char path[256] = "";
 
 void Set_Tiles(unsigned char *font);
 void Set_Map();
@@ -149,21 +154,57 @@ void Set_Cell_H(byte val){ //for tandy, set cell height to 8 pixels
 	asm mov dx,03D5h
 	asm mov al,val
 	asm out dx,al
-} 
+}
 
 void test();
 
-void main(){
+#ifdef INCLUDE_PARAM_TEST
+void test_params(int argc, char **argv) {
+	int key;
+	printf("Path  --> '%s'\n", path);
+	if (argc > 4)
+		printf("File  --> '%s'\n", argv[4]);
+	if (argc > 3)
+		printf("Drums --> '%c'\n", argv[3][0]);
+	if (argc > 2)
+		printf("Audio --> '%c'\n", argv[2][0]);
+	if (argc > 1)
+		printf("Video --> '%c'\n", argv[1][0]);
+	printf("This  --> '%s'\n", argv[0]);
+	while(!kbhit());
+	key = getch();
+	if (key == 0x1b /*ESC*/) exit(0);
+}
+#endif
+
+void main(int argc, char **argv){
 	//byte load;
 	int i;
-	Setup();
+	char *ptr, bs = '\\';
+
+	strcpy(path, argv[0]);
+	ptr = strrchr(path, bs);
+	if (ptr != null)
+		(*(++ptr)) = 0x00;
+#ifdef INCLUDE_PARAM_TEST
+	test_params(argc, argv);
+#endif
+	if (argc > 3)
+		Setup(argv[1][0], argv[2][0], argv[3][0]);
+	else if (argc > 3)
+		Setup(argv[1][0], argv[2][0], 0);
+	else if (argc > 2)
+		Setup(argv[1][0], 0, 0);
+	else
+		Setup(0, 0, 0);
 	Init();
 	Set_Map();
 	Read_Dir();
 	Print_Dir(0);
 	//Draw selection
 	for (i = 1; i < 26; i+=2) XGA_TEXT_MAP[(160*8)+18+i] = Color_Selected;
-	
+	if(argc > 4)
+		Load_Music(argv[4]);
 	while(running){
 		Control_Menu();
 		if (VIS_ON) Display_Bars();
@@ -176,7 +217,7 @@ void main(){
 
 //////////////////
 
-void Setup(){
+void Setup(char keyVideo, char keyAudio, char keyDrums){
 	int key = 0;
 	int i;
 	union REGS regs;
@@ -187,15 +228,21 @@ void Setup(){
 	regs.h.al=0x00;
 	regs.h.bl=0x32;
 	int86(0x10, &regs, &regs);
-	
+
 	if (regs.h.al == 0x1A) {
 		printf("\n\n\n\n\n\n");
 		printf("                             SELECT GRAPHICS ADAPTER                            \n\n");
 		printf("                      1 for VGA\n");
 		printf("                      2 for MCGA\n");
 		printf("                      3 for bad VGA/MCGA emulator with no VRAM font support");
-		while(!kbhit());
-		key = getch() -48;
+		if (keyVideo)
+			key = keyVideo;
+		else
+		{
+			while(!kbhit());
+			key = getch();
+		}
+		key -= 48;
 		if (key == 1) GRAPHICS_CARD = 3;
 		if (key == 2) {GRAPHICS_CARD = 3; MCGA = 1;}
 		if (key == 3) GRAPHICS_CARD = 2;
@@ -241,9 +288,9 @@ void Setup(){
 				Color_Error = RED << 4 | WHITE;
 			}
 		}
-	}	
+	}
 	system("cls");
-	
+
 	Clearkb();
 	if (GRAPHICS_CARD == 2) Set_Cell_H(8);
 	if (GRAPHICS_CARD == 3) Set_Tiles("Font_BIZ.png");//Before adding interrupt timer
@@ -255,9 +302,15 @@ void Setup(){
 	printf("                      4 for opl2 lpt1 \n");
 	printf("                      5 for opl2 lpt2 \n\n\n");
 	printf("               Press to select, or any other key for default  (388)");
-	while(!kbhit());
-	key = getch() -48;
-	system("cls");	
+	if (keyAudio)
+		key = keyAudio;
+	else
+	{
+		while(!kbhit());
+		key = getch();
+	}
+	key -= 48;
+	system("cls");
 	Clearkb();
 	if (key == 1) {OPL2LPT = 0; ADLIB_PORT = 0x388;}
 	else if (key == 2) {OPL2LPT = 0; ADLIB_PORT = 0x220;}
@@ -266,13 +319,18 @@ void Setup(){
 	else if (key == 5) {OPL2LPT = 1; ADLIB_PORT = PARALEL2[0];}
 	else ADLIB_PORT = 0x388;
 	printf("\n\n\n\n\n\n\n\n\n");
-	printf("                           SOUND BLASTER DRUMS?   Y/N\n\n");      
+	printf("                           SOUND BLASTER DRUMS?   Y/N\n\n");
 	printf("                        Do not use with ADLIB, default = N\n");
-	while(!kbhit());
-	key = getch();
+	if (keyDrums)
+		key = keyDrums;
+	else
+	{
+		while(!kbhit());
+		key = getch();
+	}
 	if ((key == 89) || (key == 121))Sound_Blaster = 1;
 	if ((key == 78) || (key == 110))Sound_Blaster = 0;
-	system("cls");	
+	system("cls");
 	Clearkb();
 	//asm mov ax, 1h
 	//asm int 10h
@@ -456,21 +514,24 @@ void Set_Map(){
 	int i = 0;
 	byte color,character,bkg;
 	FILE *MAP;
-	
+	char map_path[255];
+	strcpy(map_path, path);
 	if (GRAPHICS_CARD == 3) {
-		MAP = fopen("VGA_MAP.bin","rb");
-		if (!MAP) {printf("\nCan't find VGA_MAP.bin\n"); sleep(1); Exit_Dos();}
+		MAP = fopen(strcat(path, "VGA_MAP.bin"),"rb");
+		if (!MAP) {printf("\nCan't find %s\n", map_path); sleep(1); Exit_Dos();}
 		fread(XGA_TEXT_MAP,2,80*25,MAP);
+		fclose(MAP);
 	}
 	if (GRAPHICS_CARD == 2) {//CGA/TANDY
-		MAP = fopen("CGA_MAP.bin","rb");
-		if (!MAP) {printf("\nCan't find CGA_MAP.bin\n"); sleep(1); Exit_Dos();}
+		MAP = fopen(strcat(map_path, "CGA_MAP.bin"),"rb");
+		if (!MAP) {printf("\nCan't find %s\n", map_path); sleep(1); Exit_Dos();}
 		fread(XGA_TEXT_MAP,2,80*25,MAP);
+		fclose(MAP);
 	}
 	if (GRAPHICS_CARD == 1) {//MDA
 		XGA_TEXT_MAP = MDA_TEXT_MAP;
-		MAP = fopen("CGA_MAP.bin","rb");
-		if (!MAP) {printf("\nCan't find CGA_MAP.bin\n"); sleep(1); Exit_Dos();}
+		MAP = fopen(strcat(map_path, "CGA_MAP.bin"),"rb");
+		if (!MAP) {printf("\nCan't find %s\n", map_path); sleep(1); Exit_Dos();}
 		fread(XGA_TEXT_MAP,2,80*25,MAP);
 		for (i = 0;i <(80*25*2);i+=2){
 			character = XGA_TEXT_MAP[i];
@@ -480,12 +541,13 @@ void Set_Map(){
 			color = XGA_TEXT_MAP[i+1];
 			bkg = color >> 4;
 			//Bits 0-2: 0 => no underline. //Bit 3 = 1, High intensity.
-			if ( (color == 0x2f) || (character == 219) 
+			if ( (color == 0x2f) || (character == 219)
 			|| (character == 220) || (character == 223)
 			|| (bkg == 4)         || (bkg == 5)       ) color = 0x78;//If borders, titles etc
 			else color = 0x10; //Normal
 			XGA_TEXT_MAP[i+1] = color;
 		}
+		fclose(MAP);
 	}
 }
 
@@ -503,12 +565,15 @@ void Set_Tiles(unsigned char *font){
 	unsigned char *data1 = calloc(1024*4,1);
 	byte n0 = 0;//MCGA font pages
 	byte n1 = 2;
-	FILE *f = fopen(font,"rb");
+	char font_path[255];
+	FILE * f;
+	strcpy(font_path, path);
+	f = fopen(strcat(font_path, font),"rb");
 	if (!f){free(data);free(data1);return;}
 	fseek(f, 0x43, SEEK_SET);
 	fread(data,1,16*256,f);
 	fclose(f);
-	
+
 	if (!MCGA){
 		// 1 bit png, each line is stored in 16 bytes + 1 extra at the end
 		for (y = 0; y < 16*(16*17); y+=(16*17)){
@@ -524,7 +589,7 @@ void Set_Tiles(unsigned char *font){
 		//asm xor bl, bl
 		//asm int 10h //Cells are 8 pixel tall
 		//vga_write_reg(0x3C4, 0x01, 0x01);	//9/8DM -- 9/8 Dot Mode, text cells are 8 pixels wide
-		
+
 		//Write tiles
 		//Write tiles
 		/*outport(0x3C4,0x0402);
