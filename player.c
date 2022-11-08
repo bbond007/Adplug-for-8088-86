@@ -105,6 +105,7 @@ void Stop_Music();
 void Setup(char keyVideo,char keyAudio, char keyDrums);
 void Init();
 void Exit_Dos();
+void CsrOn();
 
 byte CimfPlayer_load(char *filename);
 byte CxsmPlayer_load(char *filename);
@@ -137,7 +138,10 @@ byte Color_Loaded = 0;
 byte Color_Error = 0;
 
 extern unsigned char C_Volume[];
-char path[256] = "";
+extern char * Initial_working_dir;
+#define MAX_PATH_SIZE 256
+char EXE_path [MAX_PATH_SIZE] = "";
+char file_path[MAX_PATH_SIZE] = "";
 
 void Set_Tiles(unsigned char *font);
 void Set_Map();
@@ -159,35 +163,84 @@ void Set_Cell_H(byte val){ //for tandy, set cell height to 8 pixels
 void test();
 
 #ifdef INCLUDE_PARAM_TEST
-void test_params(int argc, char **argv) {
+void test_params(int argc,
+		 char **argv,
+		 char *file_path,
+		 char *file_name) {
 	int key;
-	printf("Path  --> '%s'\n", path);
+
+	printf(        "File Path  --> '%s'\n", file_path);
+	printf(        "File Name  --> '%s'\n", file_name);
+	printf(        "EXE Path   --> '%s'\n", EXE_path);
 	if (argc > 4)
-		printf("File  --> '%s'\n", argv[4]);
+		printf("Sound File --> '%s'\n", argv[4]);
 	if (argc > 3)
-		printf("Drums --> '%c'\n", argv[3][0]);
+		printf("Drums      --> '%c'\n", argv[3][0]);
 	if (argc > 2)
-		printf("Audio --> '%c'\n", argv[2][0]);
+		printf("Audio      --> '%c'\n", argv[2][0]);
 	if (argc > 1)
-		printf("Video --> '%c'\n", argv[1][0]);
-	printf("This  --> '%s'\n", argv[0]);
+		printf("Video      --> '%c'\n", argv[1][0]);
+	printf(        "This       --> '%s'\n", argv[0]);
 	while(!kbhit());
 	key = getch();
-	if (key == 0x1b /*ESC*/) exit(0);
+	if (key == 0x1b)
+	{
+		chdir(Initial_working_dir);
+		exit(0);
+	}
 }
 #endif
+
+void CsrOff()
+{
+	asm mov  AH, 01h
+	asm mov  CX, 1400h
+	asm int  10h
+}
+
+void CsrOn()
+{
+	asm MOV  AH, 01h
+	asm MOV  CX, 0607h
+	asm INT  10h
+}
+
+
+void splitFilePath(char *FilePath, char *Path, char *File){
+	char *ptr;
+	strcpy(Path, FilePath);
+	ptr = strrchr(Path, '\\');
+	if (ptr != null)
+	{
+		strcpy(File, ++ptr);
+		*ptr = 0x00;
+	}
+	else
+	{
+		if(File != null)
+			strcpy(File, Path);
+		Path[0] = 0x00;
+	}
+}
 
 void main(int argc, char **argv){
 	//byte load;
 	int i;
-	char *ptr, bs = '\\';
+	char file_name[20] = "";
+	if (argc > 4)
+	{       splitFilePath(argv[4], file_path, file_name);
+		if (file_path[0] != 0x00)
+		{
+			if (chdir(file_path))
+			{
+				printf("CHDIR Error --> '%s'\n", file_path);
 
-	strcpy(path, argv[0]);
-	ptr = strrchr(path, bs);
-	if (ptr != null)
-		(*(++ptr)) = 0x00;
+			}
+		}
+	}
+	splitFilePath(argv[0], EXE_path, null);
 #ifdef INCLUDE_PARAM_TEST
-	test_params(argc, argv);
+	test_params(argc, argv, file_path, file_name);
 #endif
 	if (argc > 3)
 		Setup(argv[1][0], argv[2][0], argv[3][0]);
@@ -197,14 +250,15 @@ void main(int argc, char **argv){
 		Setup(argv[1][0], 0, 0);
 	else
 		Setup(0, 0, 0);
+	CsrOff();
 	Init();
 	Set_Map();
 	Read_Dir();
 	Print_Dir(0);
 	//Draw selection
 	for (i = 1; i < 26; i+=2) XGA_TEXT_MAP[(160*8)+18+i] = Color_Selected;
-	if(argc > 4)
-		Load_Music(argv[4]);
+	if(file_name[0] != 0x00)
+		Load_Music(file_name);
 	while(running){
 		Control_Menu();
 		if (VIS_ON) Display_Bars();
@@ -514,10 +568,10 @@ void Set_Map(){
 	int i = 0;
 	byte color,character,bkg;
 	FILE *MAP;
-	char map_path[255];
-	strcpy(map_path, path);
+	char map_path[MAX_PATH_SIZE];
+	strcpy(map_path, EXE_path);
 	if (GRAPHICS_CARD == 3) {
-		MAP = fopen(strcat(path, "VGA_MAP.bin"),"rb");
+		MAP = fopen(strcat(map_path, "VGA_MAP.bin"),"rb");
 		if (!MAP) {printf("\nCan't find %s\n", map_path); sleep(1); Exit_Dos();}
 		fread(XGA_TEXT_MAP,2,80*25,MAP);
 		fclose(MAP);
@@ -565,9 +619,9 @@ void Set_Tiles(unsigned char *font){
 	unsigned char *data1 = calloc(1024*4,1);
 	byte n0 = 0;//MCGA font pages
 	byte n1 = 2;
-	char font_path[255];
+	char font_path[MAX_PATH_SIZE];
 	FILE * f;
-	strcpy(font_path, path);
+	strcpy(font_path, EXE_path);
 	f = fopen(strcat(font_path, font),"rb");
 	if (!f){free(data);free(data1);return;}
 	fseek(f, 0x43, SEEK_SET);

@@ -52,7 +52,7 @@ void Set_Tiles(unsigned char *font);
 extern int ADLIB_PORT;
 extern int Sound_Blaster;
 int TANDY_PORT = 0x00C0;
-char Initial_working_dir[32];
+char Initial_working_dir[256];
 	
 extern byte Color_Loading;
 extern byte Color_Loaded;
